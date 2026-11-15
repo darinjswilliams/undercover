@@ -19,7 +19,10 @@ def main(path):
     if len(baseline) < 2:
         sys.exit("Need at least two baseline runs to tell noise from change.")
 
-    print("Scores:", ", ".join(f"{k} {sum(r[k] for r in rows.values())}/{len(rows)}" for k in runs))
+    print(
+        "Scores:",
+        ", ".join(f"{k} {sum(r[k] for r in rows.values())}/{len(rows)}" for k in runs),
+    )
 
     stable_right = [c for c, r in rows.items() if all(r[k] for k in baseline)]
     stable_wrong = [c for c, r in rows.items() if not any(r[k] for k in baseline)]
@@ -34,7 +37,8 @@ def main(path):
     print("Always right, now wrong (inspect these):", ", ".join(broke) or "none")
     print("Always wrong, now right (inspect these):", ", ".join(fixed) or "none")
     print(
-        "Flipping claims, where a result says nothing about the change:", ", ".join(flips) or "none"
+        "Flipping claims, where a result says nothing about the change:",
+        ", ".join(flips) or "none",
     )
 
 

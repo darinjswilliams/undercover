@@ -15,7 +15,9 @@ def secret(name: str) -> str:
     if os.getenv("LOCAL_DEV") == "1":
         return os.environ[f"AGENTCORE_CREDENTIAL_{name.upper()}"]
 
-    @requires_api_key(provider_name=os.environ[f"AGENTCORE_CREDENTIAL_{name.upper()}_NAME"])
+    @requires_api_key(
+        provider_name=os.environ[f"AGENTCORE_CREDENTIAL_{name.upper()}_NAME"]
+    )
     def fetch(api_key: str) -> str:
         return api_key
 

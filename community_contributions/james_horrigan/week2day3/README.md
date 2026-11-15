@@ -12,7 +12,13 @@ Let a handler reject a payout at the approval step, with a note that goes back t
 def approval(state: ClaimState):
     """Wait for a handler to approve or reject a payout over the limit."""
     print(f"{state['claim_id']} needs a handler to approve ${state['payout']:,.2f}")
-    answer = interrupt({"claim_id": state["claim_id"], "payout": state["payout"], "rationale": state["rationale"]})
+    answer = interrupt(
+        {
+            "claim_id": state["claim_id"],
+            "payout": state["payout"],
+            "rationale": state["rationale"],
+        }
+    )
     if answer["approved"]:
         return {"approved": True, "approved_by": answer["handler"]}
     return {"approved": False, "messages": [HumanMessage(answer["note"])]}

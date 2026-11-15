@@ -4,7 +4,7 @@ export default defineConfig({
   testDir: "e2e",
   outputDir: "e2e/test-results",
   reporter: "list",
-  use: { baseURL: "http://localhost:5173" },
+  use: { baseURL: "http://localhost:5174" },
   webServer: [
     {
       command: "uv run -m uvicorn backend.main:app --port 8000",
@@ -12,8 +12,8 @@ export default defineConfig({
       reuseExistingServer: true,
     },
     {
-      command: "npx vite dashboard --port 5173 --strictPort",
-      url: "http://localhost:5173",
+      command: "npx vite dashboard --port 5174 --strictPort",
+      url: "http://localhost:5174",
       reuseExistingServer: true,
     },
   ],

@@ -31,7 +31,14 @@ CONTEXT_TARGET = "undercover-context"
 ENGINE_NAME = "undercover_policy_engine"
 MEMORY_NAME = "undercover_memory"
 PROJECT_TAG = {"project": "undercover"}
-LINUX = ["--python-platform", "x86_64-manylinux2014", "--python-version", "3.12", "--only-binary", ":all:"]
+LINUX = [
+    "--python-platform",
+    "x86_64-manylinux2014",
+    "--python-version",
+    "3.12",
+    "--only-binary",
+    ":all:",
+]
 
 session = boto3.Session()
 region = session.region_name
@@ -52,13 +59,43 @@ def package(name, group, folders):
     shutil.rmtree(folder, ignore_errors=True)
     folder.mkdir(parents=True)
     requirements = BUILD / f"{name}-requirements.txt"
-    export = ["uv", "export", "--only-group", group, "--no-hashes", "--no-emit-project", "--quiet", "--output-file", str(requirements)]
+    export = [
+        "uv",
+        "export",
+        "--only-group",
+        group,
+        "--no-hashes",
+        "--no-emit-project",
+        "--quiet",
+        "--output-file",
+        str(requirements),
+    ]
     subprocess.run(export, cwd=REPO, check=True)
-    subprocess.run(["uv", "pip", "install", "--quiet", "--target", str(folder), *LINUX, "-r", str(requirements)], cwd=REPO, check=True)
+    subprocess.run(
+        [
+            "uv",
+            "pip",
+            "install",
+            "--quiet",
+            "--target",
+            str(folder),
+            *LINUX,
+            "-r",
+            str(requirements),
+        ],
+        cwd=REPO,
+        check=True,
+    )
     for source, target in folders.items():
-        shutil.copytree(REPO / source, folder / target, ignore=shutil.ignore_patterns("tests", "__pycache__"))
+        shutil.copytree(
+            REPO / source,
+            folder / target,
+            ignore=shutil.ignore_patterns("tests", "__pycache__"),
+        )
     zip_path = Path(shutil.make_archive(str(BUILD / name), "zip", folder))
-    print(f"{zip_path.name}: {zip_path.stat().st_size / 1_000_000:.1f} MB (Lambda takes up to 50 MB)")
+    print(
+        f"{zip_path.name}: {zip_path.stat().st_size / 1_000_000:.1f} MB (Lambda takes up to 50 MB)"
+    )
     return zip_path
 
 
@@ -76,7 +113,13 @@ def make_function_role(role_name, log_group, description):
     """Create a role that lets Lambda run a function and write to its log group, and nothing else."""
     lambda_trust = {
         "Version": "2012-10-17",
-        "Statement": [{"Effect": "Allow", "Principal": {"Service": "lambda.amazonaws.com"}, "Action": "sts:AssumeRole"}],
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Principal": {"Service": "lambda.amazonaws.com"},
+                "Action": "sts:AssumeRole",
+            }
+        ],
     }
     try:
         role = iam.create_role(
@@ -99,7 +142,11 @@ def make_function_role(role_name, log_group, description):
             }
         ],
     }
-    iam.put_role_policy(RoleName=role_name, PolicyName=f"{role_name}-logging", PolicyDocument=json.dumps(logging_policy))
+    iam.put_role_policy(
+        RoleName=role_name,
+        PolicyName=f"{role_name}-logging",
+        PolicyDocument=json.dumps(logging_policy),
+    )
     return role
 
 
@@ -110,13 +157,21 @@ def deploy_function(name, role, zip_path, settings):
         lambda_client.get_function(FunctionName=name)
         lambda_client.update_function_code(FunctionName=name, ZipFile=zip_bytes)
         lambda_client.get_waiter("function_updated_v2").wait(FunctionName=name)
-        lambda_client.update_function_configuration(FunctionName=name, Role=role["Arn"], **settings)
+        lambda_client.update_function_configuration(
+            FunctionName=name, Role=role["Arn"], **settings
+        )
         lambda_client.get_waiter("function_updated_v2").wait(FunctionName=name)
         print(f"Updated function {name}")
     except lambda_client.exceptions.ResourceNotFoundException:
         for attempt in range(10):
             try:
-                lambda_client.create_function(FunctionName=name, Role=role["Arn"], Code={"ZipFile": zip_bytes}, Tags=PROJECT_TAG, **settings)
+                lambda_client.create_function(
+                    FunctionName=name,
+                    Role=role["Arn"],
+                    Code={"ZipFile": zip_bytes},
+                    Tags=PROJECT_TAG,
+                    **settings,
+                )
                 break
             except lambda_client.exceptions.InvalidParameterValueException:
                 print("Waiting for the new role to reach Lambda")
@@ -129,7 +184,9 @@ def deploy_function(name, role, zip_path, settings):
 def function_url(name, auth_type):
     """The function's URL, made the first time."""
     try:
-        url = lambda_client.create_function_url_config(FunctionName=name, AuthType=auth_type)["FunctionUrl"]
+        url = lambda_client.create_function_url_config(
+            FunctionName=name, AuthType=auth_type
+        )["FunctionUrl"]
     except lambda_client.exceptions.ResourceConflictException:
         url = lambda_client.get_function_url_config(FunctionName=name)["FunctionUrl"]
     return url.rstrip("/")
@@ -138,10 +195,16 @@ def function_url(name, auth_type):
 def deploy_app(environment):
     """Package the app with the dashboard built by npm run build, and deploy it on Lambda
     with its public Function URL and the environment given, as on Day 3."""
-    zip_path = package("lambda", "server", {"backend": "backend", "data": "data", "dashboard/dist": "dashboard/dist"})
+    zip_path = package(
+        "lambda",
+        "server",
+        {"backend": "backend", "data": "data", "dashboard/dist": "dashboard/dist"},
+    )
     log_group = f"/aws/lambda/{APP_FUNCTION}"
     make_log_group(log_group)
-    role = make_function_role(APP_ROLE_NAME, log_group, "The role the UnderCover app runs as on Lambda")
+    role = make_function_role(
+        APP_ROLE_NAME, log_group, "The role the UnderCover app runs as on Lambda"
+    )
     settings = {
         "Runtime": "python3.12",
         "Handler": "backend.main.handler",
@@ -152,12 +215,22 @@ def deploy_app(environment):
     deploy_function(APP_FUNCTION, role, zip_path, settings)
     url = function_url(APP_FUNCTION, "NONE")
     public_access = [
-        {"StatementId": "public-url", "Action": "lambda:InvokeFunctionUrl", "FunctionUrlAuthType": "NONE"},
-        {"StatementId": "public-invoke", "Action": "lambda:InvokeFunction", "InvokedViaFunctionUrl": True},
+        {
+            "StatementId": "public-url",
+            "Action": "lambda:InvokeFunctionUrl",
+            "FunctionUrlAuthType": "NONE",
+        },
+        {
+            "StatementId": "public-invoke",
+            "Action": "lambda:InvokeFunction",
+            "InvokedViaFunctionUrl": True,
+        },
     ]
     for statement in public_access:
         try:
-            lambda_client.add_permission(FunctionName=APP_FUNCTION, Principal="*", **statement)
+            lambda_client.add_permission(
+                FunctionName=APP_FUNCTION, Principal="*", **statement
+            )
         except lambda_client.exceptions.ResourceConflictException:
             pass
     return url
@@ -168,8 +241,17 @@ def deploy_context():
     zip_path = package("context", "context", {"context": "context"})
     log_group = f"/aws/lambda/{CONTEXT_FUNCTION}"
     make_log_group(log_group)
-    role = make_function_role(CONTEXT_ROLE_NAME, log_group, "The role UnderCover's context layer runs as on Lambda")
-    settings = {"Runtime": "python3.12", "Handler": "context.server.handler", "Timeout": 30, "MemorySize": 512}
+    role = make_function_role(
+        CONTEXT_ROLE_NAME,
+        log_group,
+        "The role UnderCover's context layer runs as on Lambda",
+    )
+    settings = {
+        "Runtime": "python3.12",
+        "Handler": "context.server.handler",
+        "Timeout": 30,
+        "MemorySize": 512,
+    }
     deploy_function(CONTEXT_FUNCTION, role, zip_path, settings)
     return function_url(CONTEXT_FUNCTION, "AWS_IAM")
 
@@ -193,25 +275,39 @@ def wait_for(get_resource, label):
 def find_key_providers():
     """The API key credential providers named undercover-..."""
     pages = agentcore.get_paginator("list_api_key_credential_providers").paginate()
-    return [p["name"] for page in pages for p in page["credentialProviders"] if p["name"].startswith("undercover-")]
+    return [
+        p["name"]
+        for page in pages
+        for p in page["credentialProviders"]
+        if p["name"].startswith("undercover-")
+    ]
 
 
 def find_gateways():
     """The gateways named undercover-gateway."""
     pages = agentcore.get_paginator("list_gateways").paginate()
-    return [g for page in pages for g in page["items"] if g["name"].startswith(GATEWAY_NAME)]
+    return [
+        g for page in pages for g in page["items"] if g["name"].startswith(GATEWAY_NAME)
+    ]
 
 
 def find_targets(gateway_id):
     """The Gateway's targets."""
-    pages = agentcore.get_paginator("list_gateway_targets").paginate(gatewayIdentifier=gateway_id)
+    pages = agentcore.get_paginator("list_gateway_targets").paginate(
+        gatewayIdentifier=gateway_id
+    )
     return [t for page in pages for t in page["items"]]
 
 
 def find_policy_engines():
     """The policy engines named undercover..."""
     pages = agentcore.get_paginator("list_policy_engines").paginate()
-    return [e for page in pages for e in page["policyEngines"] if e["name"].startswith("undercover")]
+    return [
+        e
+        for page in pages
+        for e in page["policyEngines"]
+        if e["name"].startswith("undercover")
+    ]
 
 
 def find_policies(engine_id):
@@ -223,22 +319,36 @@ def find_policies(engine_id):
 def find_memories():
     """The memories named undercover_memory, leaving out any being deleted."""
     pages = agentcore.get_paginator("list_memories").paginate()
-    return [m for page in pages for m in page["memories"] if m["id"].startswith(MEMORY_NAME) and m["status"] != "DELETING"]
+    return [
+        m
+        for page in pages
+        for m in page["memories"]
+        if m["id"].startswith(MEMORY_NAME) and m["status"] != "DELETING"
+    ]
 
 
 def find_roles():
     """The IAM roles named undercover..."""
     pages = iam.get_paginator("list_roles").paginate()
-    return [r["RoleName"] for page in pages for r in page["Roles"] if r["RoleName"].startswith("undercover")]
+    return [
+        r["RoleName"]
+        for page in pages
+        for r in page["Roles"]
+        if r["RoleName"].startswith("undercover")
+    ]
 
 
 def put_key_provider(api_key):
     """The app's API key in AgentCore Identity, for the Gateway to send."""
     if KEY_PROVIDER_NAME in find_key_providers():
-        agentcore.update_api_key_credential_provider(name=KEY_PROVIDER_NAME, apiKey=api_key)
+        agentcore.update_api_key_credential_provider(
+            name=KEY_PROVIDER_NAME, apiKey=api_key
+        )
         print(f"Credential provider {KEY_PROVIDER_NAME} already exists, key updated")
     else:
-        agentcore.create_api_key_credential_provider(name=KEY_PROVIDER_NAME, apiKey=api_key, tags=PROJECT_TAG)
+        agentcore.create_api_key_credential_provider(
+            name=KEY_PROVIDER_NAME, apiKey=api_key, tags=PROJECT_TAG
+        )
         print(f"Created credential provider {KEY_PROVIDER_NAME}")
     return agentcore.get_api_key_credential_provider(name=KEY_PROVIDER_NAME)
 
@@ -254,7 +364,9 @@ def make_gateway_role(provider, context_arn):
                 "Action": "sts:AssumeRole",
                 "Condition": {
                     "StringEquals": {"aws:SourceAccount": account},
-                    "ArnLike": {"aws:SourceArn": f"arn:aws:bedrock-agentcore:{region}:{account}:gateway/{GATEWAY_NAME}-*"},
+                    "ArnLike": {
+                        "aws:SourceArn": f"arn:aws:bedrock-agentcore:{region}:{account}:gateway/{GATEWAY_NAME}-*"
+                    },
                 },
             }
         ],
@@ -273,22 +385,51 @@ def make_gateway_role(provider, context_arn):
 
     provider_arn = provider["credentialProviderArn"]
     workload_directory = f"arn:aws:bedrock-agentcore:{region}:{account}:workload-identity-directory/default"
-    workload_identity = [workload_directory, f"{workload_directory}/workload-identity/{GATEWAY_NAME}-*"]
+    workload_identity = [
+        workload_directory,
+        f"{workload_directory}/workload-identity/{GATEWAY_NAME}-*",
+    ]
     token_vault = provider_arn.split("/apikeycredentialprovider/")[0]
     api_key_policy = {
         "Version": "2012-10-17",
         "Statement": [
-            {"Effect": "Allow", "Action": "bedrock-agentcore:GetWorkloadAccessToken", "Resource": workload_identity},
-            {"Effect": "Allow", "Action": "bedrock-agentcore:GetResourceApiKey", "Resource": [provider_arn, token_vault, *workload_identity]},
-            {"Effect": "Allow", "Action": "secretsmanager:GetSecretValue", "Resource": provider["apiKeySecretArn"]["secretArn"]},
+            {
+                "Effect": "Allow",
+                "Action": "bedrock-agentcore:GetWorkloadAccessToken",
+                "Resource": workload_identity,
+            },
+            {
+                "Effect": "Allow",
+                "Action": "bedrock-agentcore:GetResourceApiKey",
+                "Resource": [provider_arn, token_vault, *workload_identity],
+            },
+            {
+                "Effect": "Allow",
+                "Action": "secretsmanager:GetSecretValue",
+                "Resource": provider["apiKeySecretArn"]["secretArn"],
+            },
         ],
     }
     context_policy = {
         "Version": "2012-10-17",
-        "Statement": [{"Effect": "Allow", "Action": ["lambda:InvokeFunctionUrl", "lambda:InvokeFunction"], "Resource": context_arn}],
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": ["lambda:InvokeFunctionUrl", "lambda:InvokeFunction"],
+                "Resource": context_arn,
+            }
+        ],
     }
-    iam.put_role_policy(RoleName=GATEWAY_ROLE_NAME, PolicyName="undercover-gateway-api-key", PolicyDocument=json.dumps(api_key_policy))
-    iam.put_role_policy(RoleName=GATEWAY_ROLE_NAME, PolicyName="undercover-gateway-context", PolicyDocument=json.dumps(context_policy))
+    iam.put_role_policy(
+        RoleName=GATEWAY_ROLE_NAME,
+        PolicyName="undercover-gateway-api-key",
+        PolicyDocument=json.dumps(api_key_policy),
+    )
+    iam.put_role_policy(
+        RoleName=GATEWAY_ROLE_NAME,
+        PolicyName="undercover-gateway-context",
+        PolicyDocument=json.dumps(context_policy),
+    )
     return role
 
 
@@ -315,21 +456,37 @@ def make_gateway(role):
                     raise
                 print("Waiting for the new role to reach AgentCore")
                 time.sleep(3)
-    return wait_for(lambda: agentcore.get_gateway(gatewayIdentifier=gateway_id), f"Gateway {gateway_id}")
+    return wait_for(
+        lambda: agentcore.get_gateway(gatewayIdentifier=gateway_id),
+        f"Gateway {gateway_id}",
+    )
 
 
 def put_target(gateway_id, settings):
     """Create a target, or update it in place, and try again while the Gateway's role can't be used yet."""
     for attempt in range(20):
-        existing = [t for t in find_targets(gateway_id) if t["name"] == settings["name"]]
+        existing = [
+            t for t in find_targets(gateway_id) if t["name"] == settings["name"]
+        ]
         if existing:
             target_id = existing[0]["targetId"]
-            agentcore.update_gateway_target(gatewayIdentifier=gateway_id, targetId=target_id, **settings)
+            agentcore.update_gateway_target(
+                gatewayIdentifier=gateway_id, targetId=target_id, **settings
+            )
         else:
-            target_id = agentcore.create_gateway_target(gatewayIdentifier=gateway_id, **settings)["targetId"]
-        target = wait_for(lambda: agentcore.get_gateway_target(gatewayIdentifier=gateway_id, targetId=target_id), f"Target {settings['name']}")
+            target_id = agentcore.create_gateway_target(
+                gatewayIdentifier=gateway_id, **settings
+            )["targetId"]
+        target = wait_for(
+            lambda: agentcore.get_gateway_target(
+                gatewayIdentifier=gateway_id, targetId=target_id
+            ),
+            f"Target {settings['name']}",
+        )
         reasons = " ".join(target.get("statusReasons", []))
-        if target["status"] == "READY" or ("role" not in reasons and "Authorization" not in reasons):
+        if target["status"] == "READY" or (
+            "role" not in reasons and "Authorization" not in reasons
+        ):
             return target
         print("Waiting for the Gateway's role to reach AgentCore")
         time.sleep(10)
@@ -339,7 +496,11 @@ def put_target(gateway_id, settings):
 def agent_api(app_url, api_key):
     """The app's API document for the claim agent, with the app's address as its server."""
     for attempt in range(5):
-        response = requests.get(f"{app_url}/api/agent/openapi.json", headers={"X-API-Key": api_key}, timeout=60)
+        response = requests.get(
+            f"{app_url}/api/agent/openapi.json",
+            headers={"X-API-Key": api_key},
+            timeout=60,
+        )
         if response.ok:
             break
         time.sleep(3)
@@ -356,7 +517,13 @@ def put_targets(gateway_id, app_url, context_url, provider, api_key):
         {
             "name": APP_TARGET,
             "description": "The UnderCover app's routes for the claim agent",
-            "targetConfiguration": {"mcp": {"openApiSchema": {"inlinePayload": json.dumps(agent_api(app_url, api_key))}}},
+            "targetConfiguration": {
+                "mcp": {
+                    "openApiSchema": {
+                        "inlinePayload": json.dumps(agent_api(app_url, api_key))
+                    }
+                }
+            },
             "credentialProviderConfigurations": [
                 {
                     "credentialProviderType": "API_KEY",
@@ -376,11 +543,15 @@ def put_targets(gateway_id, app_url, context_url, provider, api_key):
         {
             "name": CONTEXT_TARGET,
             "description": "UnderCover's context layer: definitions, plans, rules, reference data and documents",
-            "targetConfiguration": {"mcp": {"mcpServer": {"endpoint": f"{context_url}/mcp"}}},
+            "targetConfiguration": {
+                "mcp": {"mcpServer": {"endpoint": f"{context_url}/mcp"}}
+            },
             "credentialProviderConfigurations": [
                 {
                     "credentialProviderType": "GATEWAY_IAM_ROLE",
-                    "credentialProvider": {"iamCredentialProvider": {"service": "lambda", "region": region}},
+                    "credentialProvider": {
+                        "iamCredentialProvider": {"service": "lambda", "region": region}
+                    },
                 }
             ],
         },
@@ -415,23 +586,41 @@ def enforce_policy(gateway, role):
     if existing:
         engine_id = existing[0]["policyEngineId"]
     else:
-        engine_id = agentcore.create_policy_engine(name=ENGINE_NAME, description="Rules for the UnderCover gateway", tags=PROJECT_TAG)["policyEngineId"]
-    engine = wait_for(lambda: agentcore.get_policy_engine(policyEngineId=engine_id), f"Policy engine {engine_id}")
+        engine_id = agentcore.create_policy_engine(
+            name=ENGINE_NAME,
+            description="Rules for the UnderCover gateway",
+            tags=PROJECT_TAG,
+        )["policyEngineId"]
+    engine = wait_for(
+        lambda: agentcore.get_policy_engine(policyEngineId=engine_id),
+        f"Policy engine {engine_id}",
+    )
     engine_arn = engine["policyEngineArn"]
     gateway_id, gateway_arn = gateway["gatewayId"], gateway["gatewayArn"]
 
     policy_engine_policy = {
         "Version": "2012-10-17",
         "Statement": [
-            {"Effect": "Allow", "Action": "bedrock-agentcore:GetPolicyEngine", "Resource": engine_arn},
             {
                 "Effect": "Allow",
-                "Action": ["bedrock-agentcore:AuthorizeAction", "bedrock-agentcore:PartiallyAuthorizeActions"],
+                "Action": "bedrock-agentcore:GetPolicyEngine",
+                "Resource": engine_arn,
+            },
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "bedrock-agentcore:AuthorizeAction",
+                    "bedrock-agentcore:PartiallyAuthorizeActions",
+                ],
                 "Resource": [engine_arn, gateway_arn],
             },
         ],
     }
-    iam.put_role_policy(RoleName=GATEWAY_ROLE_NAME, PolicyName="undercover-gateway-policy-engine", PolicyDocument=json.dumps(policy_engine_policy))
+    iam.put_role_policy(
+        RoleName=GATEWAY_ROLE_NAME,
+        PolicyName="undercover-gateway-policy-engine",
+        PolicyDocument=json.dumps(policy_engine_policy),
+    )
 
     for attempt in range(20):
         try:
@@ -451,7 +640,10 @@ def enforce_policy(gateway, role):
                 raise
             print("Waiting for the role's new permission to reach AgentCore")
             time.sleep(5)
-    wait_for(lambda: agentcore.get_gateway(gatewayIdentifier=gateway_id), f"Gateway {gateway_id}")
+    wait_for(
+        lambda: agentcore.get_gateway(gatewayIdentifier=gateway_id),
+        f"Gateway {gateway_id}",
+    )
 
     policies = {
         "undercover_allow_app_tools": permit(APP_TARGET, gateway_arn),
@@ -463,15 +655,24 @@ def enforce_policy(gateway, role):
         if name in existing:
             policy_id = existing[name]["policyId"]
         else:
-            policy_id = agentcore.create_policy(policyEngineId=engine_id, name=name, definition={"cedar": {"statement": statement}})["policyId"]
-        wait_for(lambda: agentcore.get_policy(policyEngineId=engine_id, policyId=policy_id), f"Policy {name}")
+            policy_id = agentcore.create_policy(
+                policyEngineId=engine_id,
+                name=name,
+                definition={"cedar": {"statement": statement}},
+            )["policyId"]
+        wait_for(
+            lambda: agentcore.get_policy(policyEngineId=engine_id, policyId=policy_id),
+            f"Policy {name}",
+        )
 
 
 def create_gateway(app_url, context_url, api_key):
     """The Gateway with the app and the context layer as its targets and the Policy
     enforced, as on Day 3. Returns the Gateway."""
     provider = put_key_provider(api_key)
-    context_arn = lambda_client.get_function(FunctionName=CONTEXT_FUNCTION)["Configuration"]["FunctionArn"]
+    context_arn = lambda_client.get_function(FunctionName=CONTEXT_FUNCTION)[
+        "Configuration"
+    ]["FunctionArn"]
     role = make_gateway_role(provider, context_arn)
     gateway = make_gateway(role)
     put_targets(gateway["gatewayId"], app_url, context_url, provider, api_key)
@@ -494,12 +695,26 @@ def create_memory():
             description="The UnderCover Agent's memory of each customer",
             eventExpiryDuration=7,
             memoryStrategies=[
-                {"semanticMemoryStrategy": {"name": "customer_facts", "namespaceTemplates": ["/customers/{actorId}/facts/"]}},
-                {"summaryMemoryStrategy": {"name": "claim_summaries", "namespaceTemplates": ["/customers/{actorId}/claims/{sessionId}/"]}},
+                {
+                    "semanticMemoryStrategy": {
+                        "name": "customer_facts",
+                        "namespaceTemplates": ["/customers/{actorId}/facts/"],
+                    }
+                },
+                {
+                    "summaryMemoryStrategy": {
+                        "name": "claim_summaries",
+                        "namespaceTemplates": [
+                            "/customers/{actorId}/claims/{sessionId}/"
+                        ],
+                    }
+                },
             ],
             tags=PROJECT_TAG,
         )["memory"]["id"]
-    while (memory := agentcore.get_memory(memoryId=memory_id)["memory"])["status"] == "CREATING":
+    while (memory := agentcore.get_memory(memoryId=memory_id)["memory"])[
+        "status"
+    ] == "CREATING":
         time.sleep(10)
     print(f"Memory {memory_id}: {memory['status']}")
     return memory_id
@@ -521,14 +736,23 @@ def find_stacks():
     """The agent's stack and the CDK bootstrap, if they exist."""
     pages = cloudformation.get_paginator("describe_stacks").paginate()
     names = [stack["StackName"] for page in pages for stack in page["Stacks"]]
-    return [name for name in names if name.startswith(("AgentCore-undercover", "CDKToolkit"))]
+    return [
+        name
+        for name in names
+        if name.startswith(("AgentCore-undercover", "CDKToolkit"))
+    ]
 
 
 def show_resources():
     """Print the Lambda functions, AgentCore pieces and IAM roles named undercover..."""
     lambda_pages = lambda_client.get_paginator("list_functions").paginate()
     found = {
-        "Lambda functions": [f["FunctionName"] for page in lambda_pages for f in page["Functions"] if f["FunctionName"].startswith("undercover")],
+        "Lambda functions": [
+            f["FunctionName"]
+            for page in lambda_pages
+            for f in page["Functions"]
+            if f["FunctionName"].startswith("undercover")
+        ],
         "Gateways": [g["name"] for g in find_gateways()],
         "Policy engines": [e["name"] for e in find_policy_engines()],
         "API key providers": find_key_providers(),
@@ -546,7 +770,9 @@ def tear_down():
     key in AgentCore Identity, the Memory and the Gateway's role, keeping the two functions."""
     for summary in find_gateways():
         for target in find_targets(summary["gatewayId"]):
-            agentcore.delete_gateway_target(gatewayIdentifier=summary["gatewayId"], targetId=target["targetId"])
+            agentcore.delete_gateway_target(
+                gatewayIdentifier=summary["gatewayId"], targetId=target["targetId"]
+            )
             print(f"Deleted target {target['name']}")
         while find_targets(summary["gatewayId"]):
             time.sleep(3)
@@ -555,7 +781,9 @@ def tear_down():
 
     for summary in find_policy_engines():
         for policy in find_policies(summary["policyEngineId"]):
-            agentcore.delete_policy(policyEngineId=summary["policyEngineId"], policyId=policy["policyId"])
+            agentcore.delete_policy(
+                policyEngineId=summary["policyEngineId"], policyId=policy["policyId"]
+            )
             print(f"Deleted policy {policy['name']}")
         while find_policies(summary["policyEngineId"]):
             time.sleep(3)
@@ -584,7 +812,10 @@ def delete_role(role_name):
 
 def delete_functions():
     """Delete the app and the context layer from Lambda, with their roles and log groups."""
-    for function, role_name in [(APP_FUNCTION, APP_ROLE_NAME), (CONTEXT_FUNCTION, CONTEXT_ROLE_NAME)]:
+    for function, role_name in [
+        (APP_FUNCTION, APP_ROLE_NAME),
+        (CONTEXT_FUNCTION, CONTEXT_ROLE_NAME),
+    ]:
         lambda_client.delete_function(FunctionName=function)
         print(f"Deleted function {function}")
         delete_role(role_name)

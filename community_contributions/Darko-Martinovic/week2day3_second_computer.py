@@ -73,13 +73,19 @@ class ClaimState(TypedDict):
 class ClaimDecision(BaseModel):
     """A claims handler's decision on one claim."""
 
-    rationale: str = Field(description="2-3 sentences to explain the decision along with the relevant section of the policy")
+    rationale: str = Field(
+        description="2-3 sentences to explain the decision along with the relevant section of the policy"
+    )
     decision: Literal["approve", "decline", "refer"]
-    payout: float = Field(description="The amount to pay in US dollars, or 0 for a decline or a referral")
+    payout: float = Field(
+        description="The amount to pay in US dollars, or 0 for a decline or a referral"
+    )
 
 
 @tool(parse_docstring=True)
-def calculate_payout(policy_id: str, benefit: Benefit, lines: list[Line], paid_by_others: float = 0.0) -> Payout:
+def calculate_payout(
+    policy_id: str, benefit: Benefit, lines: list[Line], paid_by_others: float = 0.0
+) -> Payout:
     """Work out the payout on an approved claim with UnderCover's payout rules.
 
     Args:
@@ -94,11 +100,24 @@ def calculate_payout(policy_id: str, benefit: Benefit, lines: list[Line], paid_b
     return work_out_payout(policies[policy_id], benefit, lines, paid_by_others)
 
 
-luna = ChatOpenAI(model="openai/gpt-6-luna", base_url=OPENROUTER_BASE_URL, api_key=os.getenv("OPENROUTER_API_KEY"), reasoning_effort="low", timeout=120, max_retries=5)
+luna = ChatOpenAI(
+    model="openai/gpt-6-luna",
+    base_url=OPENROUTER_BASE_URL,
+    api_key=os.getenv("OPENROUTER_API_KEY"),
+    reasoning_effort="low",
+    timeout=120,
+    max_retries=5,
+)
 model_with_tools = luna.bind_tools([calculate_payout])
 decider = luna.with_structured_output(ClaimDecision)
 system_message = SystemMessage(f"{INSTRUCTIONS}\n{policy_wording}\n")
-connection = psycopg.connect(os.environ["DATABASE_URL"], autocommit=True, prepare_threshold=0, row_factory=dict_row, options="-c search_path=lab")
+connection = psycopg.connect(
+    os.environ["DATABASE_URL"],
+    autocommit=True,
+    prepare_threshold=0,
+    row_factory=dict_row,
+    options="-c search_path=lab",
+)
 
 
 def agent(state: ClaimState):
@@ -108,21 +127,46 @@ def agent(state: ClaimState):
 
 def decide(state: ClaimState):
     """Turn the agent's work into a decision."""
-    result = decider.invoke([system_message, *state["messages"], HumanMessage("Record your decision on this claim.")])
-    return {"decision": result.decision, "payout": result.payout, "rationale": result.rationale}
+    result = decider.invoke(
+        [
+            system_message,
+            *state["messages"],
+            HumanMessage("Record your decision on this claim."),
+        ]
+    )
+    return {
+        "decision": result.decision,
+        "payout": result.payout,
+        "rationale": result.rationale,
+    }
 
 
 def approval(state: ClaimState):
     """Wait for a handler to approve or reject the payout."""
     print(f"{state['claim_id']} needs a handler to approve ${state['payout']:,.2f}")
-    answer = interrupt({"claim_id": state["claim_id"], "decision": state["decision"], "payout": state["payout"], "rationale": state["rationale"]})
+    answer = interrupt(
+        {
+            "claim_id": state["claim_id"],
+            "decision": state["decision"],
+            "payout": state["payout"],
+            "rationale": state["rationale"],
+        }
+    )
     if answer["approved"]:
         return {"approved_by": answer["handler"]}
     note = f"{answer['handler']} rejected the payout of ${state['payout']:,.2f}: {answer['note']}"
     rejections = state.get("rejections", 0) + 1
-    update = {"messages": [HumanMessage(note)], "rejections": rejections, "notes": [note]}
+    update = {
+        "messages": [HumanMessage(note)],
+        "rejections": rejections,
+        "notes": [note],
+    }
     if rejections >= MAX_REJECTIONS:
-        update |= {"decision": "refer", "payout": 0.0, "rationale": f"Referred after {rejections} rejections by a handler"}
+        update |= {
+            "decision": "refer",
+            "payout": 0.0,
+            "rationale": f"Referred after {rejections} rejections by a handler",
+        }
     return update
 
 
@@ -188,5 +232,11 @@ if __name__ == "__main__":
     state = graph.get_state(config)
     if state.next != ("approval",):
         sys.exit(f"{thread_id} isn't waiting for a handler's approval")
-    print(f"Process {os.getpid()} found {thread_id} waiting at {state.next}: {state.interrupts[0].value['payout']:,.2f}")
-    graph.invoke(Command(resume={"handler": handler, "approved": True}), config, durability="sync")
+    print(
+        f"Process {os.getpid()} found {thread_id} waiting at {state.next}: {state.interrupts[0].value['payout']:,.2f}"
+    )
+    graph.invoke(
+        Command(resume={"handler": handler, "approved": True}),
+        config,
+        durability="sync",
+    )

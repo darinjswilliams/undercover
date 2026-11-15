@@ -27,6 +27,7 @@ ROOT = HERE.parents[3]
 sys.path.insert(0, str(ROOT))  # lets the script run directly as well as with -m
 
 from labs.week2day1_payout import Benefit, Line, Payout, work_out_payout  # noqa: E402
+
 SNAPSHOT = HERE / "comparison_runs.csv"
 RESULTS = HERE / "results"
 CONCISE = "Concise wording + payout tool"

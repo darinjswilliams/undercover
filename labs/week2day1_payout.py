@@ -24,7 +24,13 @@ MEALS_PER_TRAVELER_PER_DAY = 35.0
 APPROVAL_LIMIT = 1000.0
 
 Benefit = Literal[
-    "trip_cancellation", "trip_interruption", "trip_delay", "baggage_delay", "baggage", "passport", "emergency_medical"
+    "trip_cancellation",
+    "trip_interruption",
+    "trip_delay",
+    "baggage_delay",
+    "baggage",
+    "passport",
+    "emergency_medical",
 ]
 
 BENEFIT_MAXIMUM = {
@@ -42,9 +48,17 @@ class Line(BaseModel):
     """One covered item or expense on a claim."""
 
     description: str = Field(description="What the item or expense is")
-    amount: float = Field(description="The total claimed for the line in US dollars, before any limits. For several items, the total for all of them")
-    quantity: int = Field(default=1, ge=1, description="How many separate items the line holds, such as 3 for three shirts. A pair or a set is one item")
-    kind: Literal["item", "electronics", "cash", "expense", "hotel", "meals_without_receipts"] = Field(
+    amount: float = Field(
+        description="The total claimed for the line in US dollars, before any limits. For several items, the total for all of them"
+    )
+    quantity: int = Field(
+        default=1,
+        ge=1,
+        description="How many separate items the line holds, such as 3 for three shirts. A pair or a set is one item",
+    )
+    kind: Literal[
+        "item", "electronics", "cash", "expense", "hotel", "meals_without_receipts"
+    ] = Field(
         description=(
             "item: a belonging, or a pair or set that counts as one item. "
             "electronics: only a phone, tablet, laptop, camera or its lens, e-reader or smartwatch; any other device is an item. "
@@ -55,7 +69,10 @@ class Line(BaseModel):
         )
     )
     nights: int = Field(default=0, description="For a hotel, the number of nights")
-    hours: float = Field(default=0, description="For meals without receipts, the length of the delay in hours")
+    hours: float = Field(
+        default=0,
+        description="For meals without receipts, the length of the delay in hours",
+    )
 
 
 class Step(TypedDict):
@@ -94,7 +111,11 @@ def limit_for(line: Line, policy: dict) -> float:
         case "item":
             return plan["per_item_limit"] * line.quantity
         case "electronics":
-            per_item = ELECTRONICS_PLUS_LIMIT if "electronics_plus" in policy["add_ons"] else plan["per_item_limit"]
+            per_item = (
+                ELECTRONICS_PLUS_LIMIT
+                if "electronics_plus" in policy["add_ons"]
+                else plan["per_item_limit"]
+            )
             return per_item * line.quantity
         case "hotel":
             rooms = ceil(travelers / 2)
@@ -138,7 +159,9 @@ def benefit_maximum(policy: dict, benefit: Benefit) -> float:
     return maximum
 
 
-def work_out_payout(policy: dict, benefit: Benefit, lines: list[Line], paid_by_others: float = 0.0) -> Payout:
+def work_out_payout(
+    policy: dict, benefit: Benefit, lines: list[Line], paid_by_others: float = 0.0
+) -> Payout:
     """Work out the payout on an approved claim, following section 10 of the policy wording.
 
     Args:
@@ -150,14 +173,20 @@ def work_out_payout(policy: dict, benefit: Benefit, lines: list[Line], paid_by_o
     Returns:
         The calculation step by step, the payout, and whether the payout needs a handler's sign-off
     """
-    calculation = [eligible_amount(line, policy) for line in lines if line.kind != "cash"]
+    calculation = [
+        eligible_amount(line, policy) for line in lines if line.kind != "cash"
+    ]
     cash = sum(line.amount for line in lines if line.kind == "cash")
     if cash:
-        calculation.append(step(f"Cash, up to ${CASH_LIMIT:,.0f} in all", min(cash, CASH_LIMIT)))
+        calculation.append(
+            step(f"Cash, up to ${CASH_LIMIT:,.0f} in all", min(cash, CASH_LIMIT))
+        )
     total = sum(entry["amount"] for entry in calculation)
 
     if paid_by_others:
-        calculation.append(step("Less what others have paid or refunded", -paid_by_others))
+        calculation.append(
+            step("Less what others have paid or refunded", -paid_by_others)
+        )
         total -= paid_by_others
 
     if benefit in DEDUCTIBLE_BENEFITS and total > 0:
@@ -168,7 +197,11 @@ def work_out_payout(policy: dict, benefit: Benefit, lines: list[Line], paid_by_o
 
     maximum = benefit_maximum(policy, benefit)
     if total > maximum:
-        calculation.append(step(f"Less the amount over the maximum of ${maximum:,.0f}", maximum - total))
+        calculation.append(
+            step(
+                f"Less the amount over the maximum of ${maximum:,.0f}", maximum - total
+            )
+        )
         total = maximum
 
     if total < 0:
@@ -176,4 +209,8 @@ def work_out_payout(policy: dict, benefit: Benefit, lines: list[Line], paid_by_o
         total = 0.0
 
     payout = round(total, 2)
-    return {"calculation": calculation, "payout": payout, "needs_sign_off": payout > APPROVAL_LIMIT}
+    return {
+        "calculation": calculation,
+        "payout": payout,
+        "needs_sign_off": payout > APPROVAL_LIMIT,
+    }

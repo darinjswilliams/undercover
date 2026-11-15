@@ -35,7 +35,11 @@ def connect():
     """A connection with the settings LangGraph's checkpointer needs, in the lab schema."""
     load_dotenv("../../.env", override=True)
     connection = psycopg.connect(
-        os.environ["DATABASE_URL"], autocommit=True, prepare_threshold=0, row_factory=dict_row, options="-c search_path=lab"
+        os.environ["DATABASE_URL"],
+        autocommit=True,
+        prepare_threshold=0,
+        row_factory=dict_row,
+        options="-c search_path=lab",
     )
     connection.execute("CREATE SCHEMA IF NOT EXISTS lab")
     connection.execute(
@@ -64,7 +68,9 @@ def build(connection, claim_ids, thread_id):
             (thread_id, claim_id, os.getpid()),
         ).fetchone()
         time.sleep(2 + claim_ids.index(claim_id) % 5)
-        connection.execute("UPDATE stand_in_log SET finished = now() WHERE id = %s", (row["id"],))
+        connection.execute(
+            "UPDATE stand_in_log SET finished = now() WHERE id = %s", (row["id"],)
+        )
         return {"results": [{"claim_id": claim_id}]}
 
     def score_run(state: Dispatch):
@@ -88,5 +94,8 @@ if __name__ == "__main__":
     thread_id, *claim_ids = sys.argv[1:]
     connection = connect()
     graph = build(connection, claim_ids, thread_id)
-    config = {"configurable": {"thread_id": thread_id}, "max_concurrency": MAX_CONCURRENCY}
+    config = {
+        "configurable": {"thread_id": thread_id},
+        "max_concurrency": MAX_CONCURRENCY,
+    }
     graph.invoke({}, config, durability=os.getenv("DURABILITY", "async"))

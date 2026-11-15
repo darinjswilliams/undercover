@@ -81,13 +81,20 @@ NEEDLESS_REFERRAL = 50
 
 def is_right(answer, expected):
     """True when the decision matches the handler's and the payout is within a dollar."""
-    return answer["decision"] == expected["decision"] and abs(answer["payout"] - expected["payout"]) <= 1
+    return (
+        answer["decision"] == expected["decision"]
+        and abs(answer["payout"] - expected["payout"]) <= 1
+    )
 
 
 def mistake_cost(answer, expected):
     """What the agent's answer costs UnderCover, against the handler's decision."""
     if answer["decision"] == expected["decision"]:
-        return abs(answer["payout"] - expected["payout"]) if answer["decision"] == "approve" else 0
+        return (
+            abs(answer["payout"] - expected["payout"])
+            if answer["decision"] == "approve"
+            else 0
+        )
     if answer["decision"] == "decline":
         return WRONGFUL_DECLINE
     if answer["decision"] == "approve":
@@ -111,7 +118,8 @@ def quality_scores(results):
     """The lab's measures of quality and cost, against the handlers' decisions."""
     rows = [(answer, labels[answer["claim_id"]]) for answer in results]
     return {
-        "decision_accuracy": sum(a["decision"] == e["decision"] for a, e in rows) / len(rows),
+        "decision_accuracy": sum(a["decision"] == e["decision"] for a, e in rows)
+        / len(rows),
         "accuracy": sum(is_right(a, e) for a, e in rows) / len(rows),
         "cost_of_mistakes": sum(mistake_cost(a, e) for a, e in rows),
         "straight_through": sum(a["decision"] != "refer" for a, _ in rows) / len(rows),
@@ -165,7 +173,11 @@ class MemoryRecords:
         """Record a decision once; False when one is already recorded."""
         if claim_id in self.decisions:
             return False
-        self.decisions[claim_id] = {"decision": decision, "payout": payout, "rationale": rationale}
+        self.decisions[claim_id] = {
+            "decision": decision,
+            "payout": payout,
+            "rationale": rationale,
+        }
         return True
 
     def decision(self, claim_id):
@@ -230,7 +242,11 @@ records = Records()
 def connect():
     """A connection to Supabase in the lab's schema, with the stretch's two tables."""
     connection = psycopg.connect(
-        os.environ["DATABASE_URL"], autocommit=True, prepare_threshold=0, row_factory=dict_row, options="-c search_path=lab"
+        os.environ["DATABASE_URL"],
+        autocommit=True,
+        prepare_threshold=0,
+        row_factory=dict_row,
+        options="-c search_path=lab",
     )
     connection.execute("CREATE SCHEMA IF NOT EXISTS lab")
     connection.execute("""CREATE TABLE IF NOT EXISTS swarm_decisions (
@@ -238,7 +254,9 @@ def connect():
         recorded_at TIMESTAMPTZ DEFAULT now(), PRIMARY KEY (thread_id, claim_id))""")
     connection.execute("""CREATE TABLE IF NOT EXISTS swarm_attempts (
         thread_id TEXT, claim_id TEXT, pid INTEGER, started_at TIMESTAMPTZ DEFAULT now(), finished_at TIMESTAMPTZ)""")
-    connection.execute("ALTER TABLE swarm_decisions ADD COLUMN IF NOT EXISTS pid INTEGER")
+    connection.execute(
+        "ALTER TABLE swarm_decisions ADD COLUMN IF NOT EXISTS pid INTEGER"
+    )
     connection.execute("""CREATE TABLE IF NOT EXISTS swarm_refusals (
         thread_id TEXT, claim_id TEXT, pid INTEGER, refused_at TIMESTAMPTZ DEFAULT now())""")
     return connection
@@ -255,7 +273,11 @@ def stand_in(claim_id):
     started = datetime.now()
     time.sleep(STAND_IN_SECONDS * (1 + int(claim_id[-1]) % 3))
     records.store.finished(claim_id)
-    return {"results": [{"claim_id": claim_id, "started": started, "finished": datetime.now()}]}
+    return {
+        "results": [
+            {"claim_id": claim_id, "started": started, "finished": datetime.now()}
+        ]
+    }
 
 
 INSTRUCTIONS = """You are a claims handler at UnderCover Travel Insurance.
@@ -285,7 +307,12 @@ def make_user_prompt(claim):
 
 
 @tool(parse_docstring=True)
-def record_decision(claim_id: str, rationale: str, decision: Literal["approve", "decline", "refer"], payout: float) -> str:
+def record_decision(
+    claim_id: str,
+    rationale: str,
+    decision: Literal["approve", "decline", "refer"],
+    payout: float,
+) -> str:
     """Record the decision on a claim in the claims system.
 
     Args:
@@ -302,7 +329,9 @@ def record_decision(claim_id: str, rationale: str, decision: Literal["approve", 
 
 
 @tool(parse_docstring=True)
-def calculate_payout(policy_id: str, benefit: Benefit, lines: list[Line], paid_by_others: float = 0.0) -> Payout:
+def calculate_payout(
+    policy_id: str, benefit: Benefit, lines: list[Line], paid_by_others: float = 0.0
+) -> Payout:
     """Work out the payout on an approved claim with UnderCover's payout rules.
 
     Args:
@@ -328,18 +357,42 @@ def payout_agent():
         timeout=120,
         max_retries=5,
     )
-    return create_agent(model=luna, tools=[record_decision, calculate_payout], system_prompt=f"{INSTRUCTIONS}\n{policy_wording}\n")
+    return create_agent(
+        model=luna,
+        tools=[record_decision, calculate_payout],
+        system_prompt=f"{INSTRUCTIONS}\n{policy_wording}\n",
+    )
 
 
 def work_claim(claim_id):
     """Run the claim agent on one claim and return its result."""
     records.store.started(claim_id)
     started = datetime.now()
-    result = payout_agent().invoke({"messages": [{"role": "user", "content": make_user_prompt(claims[claim_id])}]})
-    answer = records.store.decision(claim_id) or {"decision": "refer", "payout": 0.0, "rationale": "Nothing recorded"}
-    cost = sum(message.response_metadata["token_usage"]["cost"] for message in result["messages"] if message.type == "ai")
+    result = payout_agent().invoke(
+        {"messages": [{"role": "user", "content": make_user_prompt(claims[claim_id])}]}
+    )
+    answer = records.store.decision(claim_id) or {
+        "decision": "refer",
+        "payout": 0.0,
+        "rationale": "Nothing recorded",
+    }
+    cost = sum(
+        message.response_metadata["token_usage"]["cost"]
+        for message in result["messages"]
+        if message.type == "ai"
+    )
     records.store.finished(claim_id)
-    return {"results": [{"claim_id": claim_id, **answer, "cost": cost, "started": started, "finished": datetime.now()}]}
+    return {
+        "results": [
+            {
+                "claim_id": claim_id,
+                **answer,
+                "cost": cost,
+                "started": started,
+                "finished": datetime.now(),
+            }
+        ]
+    }
 
 
 WORKERS = {"stand-in": stand_in, "agent": work_claim}
@@ -354,7 +407,9 @@ class ModelCalls(BaseCallbackHandler):
         self.cost = 0.0
 
     def on_llm_end(self, response, **kwargs):
-        usage = response.generations[0][0].message.response_metadata.get("token_usage", {})
+        usage = response.generations[0][0].message.response_metadata.get(
+            "token_usage", {}
+        )
         with self.lock:
             self.calls += 1
             self.cost += usage.get("cost", 0.0)
@@ -386,7 +441,10 @@ def main(thread_id, worker, limit, agents, durability):
         checkpointer.setup()
         node, concurrency = dispatch_setup(worker, limit, agents)
         dispatcher = build_dispatcher(node, checkpointer)
-        config = {"configurable": {"thread_id": thread_id}, "max_concurrency": concurrency}
+        config = {
+            "configurable": {"thread_id": thread_id},
+            "max_concurrency": concurrency,
+        }
         result = dispatcher.invoke({}, config, durability=durability)
         print(json.dumps(result["scores"], default=str))
 

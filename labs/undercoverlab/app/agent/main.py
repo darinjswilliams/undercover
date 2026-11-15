@@ -57,7 +57,9 @@ def model():
 
 def propose(state: Claim) -> Claim:
     """Propose a payout for the claim."""
-    prompt = f"Propose a payout for this claim in one or two sentences.\n\n{state['claim']}"
+    prompt = (
+        f"Propose a payout for this claim in one or two sentences.\n\n{state['claim']}"
+    )
     return {"proposal": model().invoke(prompt).text}
 
 
@@ -68,10 +70,10 @@ def approval(state: Claim) -> Claim:
 
 def revise(state: Claim) -> Claim:
     """Decide again with the handler's note."""
-    prompt = f"""{state['claim']}
+    prompt = f"""{state["claim"]}
 
-You proposed: {state['proposal']}
-A senior handler sent it back with this note: {state['note']}
+You proposed: {state["proposal"]}
+A senior handler sent it back with this note: {state["note"]}
 Give your revised payout in one or two sentences."""
     return {"decision": model().invoke(prompt).text}
 
@@ -79,7 +81,9 @@ Give your revised payout in one or two sentences."""
 @cache
 def claim_graph():
     """The claim graph, made on the first request, saving its progress in Supabase."""
-    pool = ConnectionPool(secret("DatabaseUrl"), min_size=1, max_size=2, kwargs=SETTINGS, open=True)
+    pool = ConnectionPool(
+        secret("DatabaseUrl"), min_size=1, max_size=2, kwargs=SETTINGS, open=True
+    )
     with pool.connection() as connection:
         connection.execute("CREATE SCHEMA IF NOT EXISTS lab")
     checkpointer = PostgresSaver(pool)
@@ -107,9 +111,17 @@ def chat(prompt: str) -> dict:
 def work_claim(payload: dict) -> dict:
     """Start the claim on a thread, or resume it with a handler's note."""
     config = {"configurable": {"thread_id": payload["thread_id"]}}
-    start = {"claim": CLAIM} if payload["action"] == "start" else Command(resume=payload["note"])
+    start = (
+        {"claim": CLAIM}
+        if payload["action"] == "start"
+        else Command(resume=payload["note"])
+    )
     state = claim_graph().invoke(start, config, durability="sync")
-    return {"proposal": state["proposal"], "decision": state.get("decision"), "paused": "__interrupt__" in state}
+    return {
+        "proposal": state["proposal"],
+        "decision": state.get("decision"),
+        "paused": "__interrupt__" in state,
+    }
 
 
 @app.entrypoint
